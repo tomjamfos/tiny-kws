@@ -73,4 +73,14 @@ std::vector<std::complex<float>> to_complex_float(const std::vector<double>& x) 
     return buffer;
 }
 
+std::vector<std::complex<float>>
+to_complex_float(const std::vector<std::complex<double>>& x) {
+
+    std::vector<std::complex<float>> buffer(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        buffer[i] = {static_cast<float>(x[i].real()), static_cast<float>(x[i].imag())};
+    }
+    return buffer;
+}
+
 } // namespace kws::test

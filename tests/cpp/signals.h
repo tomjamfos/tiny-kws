@@ -18,5 +18,6 @@ std::vector<double> noise_real(std::size_t n, std::uint32_t seed);
 std::vector<std::complex<double>> noise_complex(std::size_t n, std::uint32_t seed);
 
 std::vector<std::complex<float>> to_complex_float(const std::vector<double>& x);
+std::vector<std::complex<float>> to_complex_float(const std::vector<std::complex<double>>& x);
 
 } // namespace kws::test

@@ -17,6 +17,7 @@ target_include_directories(tiny_kws_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(tiny_kws_test_support PRIVATE tiny_kws_warnings)
 
 add_executable(tiny_kws_tests
+    fft_test.cpp
     naive_dft_test.cpp
 )
 target_link_libraries(tiny_kws_tests PRIVATE
