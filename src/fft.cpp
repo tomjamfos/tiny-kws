@@ -1,4 +1,5 @@
 #include "fft.h"
+#include "math_constants.h"
 
 #include <cmath>
 #include <cstddef>
@@ -9,8 +10,6 @@
 namespace kws {
 
 namespace {
-
-constexpr double kPi = 3.14159265358979323846;
 
 // std::complex operator* compiled by clang or GCC incurs a NaN
 // test and runtime helper call per multiply in order to handle

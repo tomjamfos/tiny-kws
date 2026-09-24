@@ -14,15 +14,17 @@ add_library(tiny_kws_test_support STATIC
     spectrum_error.cpp
 )
 target_include_directories(tiny_kws_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(tiny_kws_test_support PRIVATE tiny_kws_warnings)
+target_link_libraries(tiny_kws_test_support
+    PUBLIC tiny_kws_core
+    PRIVATE tiny_kws_warnings
+)
 
 add_executable(tiny_kws_tests
     fft_test.cpp
     naive_dft_test.cpp
 )
 target_link_libraries(tiny_kws_tests PRIVATE
-    tiny_kws_core
-    tiny_kws_test_support
+    tiny_kws_test_support # brings in tiny_kws_core
     tiny_kws_warnings
     Catch2::Catch2WithMain
 )

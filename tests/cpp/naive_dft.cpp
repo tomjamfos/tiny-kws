@@ -1,4 +1,5 @@
 #include "naive_dft.h"
+#include "math_constants.h"
 
 #include <cmath>
 #include <complex>
@@ -7,10 +8,6 @@
 #include <string>
 
 namespace kws::test {
-
-namespace {
-constexpr double kPi = 3.14159265358979323846;
-}
 
 NaiveDft::NaiveDft(std::size_t n) : n_(n) {
 
