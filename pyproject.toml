@@ -39,6 +39,17 @@ cmake.version = ">=3.20"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["tiny_kws"]
 
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "src/**" },
+    { file = "bindings/**" },
+]
+
+[tool.pyright]
+reportMissingModuleSource = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 
