@@ -37,6 +37,9 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - Input: 16kHz mono int16 PCM, divided by 32768 to float in `[-1, 1)`,
   shorter clips zero-padded at the end up to 16000 samples.
 - Frames: 30ms (480 samples), 10ms (160 samples) hop, no centring. Produces 98 frames per clip.
+  Framed by window length, which differs from torchaudio. It frames by `n_fft` (512) and centres the
+  window in each frame, giving 97 frames offset by 16 samples. To compare, zero-pad the reference
+  input by 16 samples at each end, 16 = (512 - 480) / 2.
 - Window: Hann, periodic.
 - FFT: 512-point, hand-rolled radix-2 complex, frame zero-padded.
 - Spectrum: power.
@@ -44,6 +47,7 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - Log: `ln(max(x, 1e-6))`, applied separately since MelSpectrogram outputs linear power.
 - Output: 32 (mel bins) by 98 (time frames), float32.
 - torchaudio is the numerical reference for the frontend. Fix the C++ to match it, not the reverse.
+  Framing is the one deliberate exception.
 
 ## Build
 - Python 3.12, managed with uv. `pyproject.toml` uses scikit-build-core to build the pybind11 extension via CMake.

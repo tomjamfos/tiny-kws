@@ -21,6 +21,7 @@ target_link_libraries(tiny_kws_test_support
 
 add_executable(tiny_kws_tests
     fft_test.cpp
+    log_mel_test.cpp
     naive_dft_test.cpp
 )
 target_link_libraries(tiny_kws_tests PRIVATE
