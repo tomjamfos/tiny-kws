@@ -5,6 +5,8 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace kws {
@@ -80,6 +82,20 @@ std::vector<float> mel_filterbank() {
         }
     }
     return filterbank;
+}
+
+std::vector<float> pad_clip(const float* input, std::size_t num_samples) {
+
+    if (num_samples > kClipSamples) {
+        throw std::invalid_argument("pad_clip: expected at most " +
+                                    std::to_string(kClipSamples) + " samples, got " +
+                                    std::to_string(num_samples));
+    }
+
+    // Zero-pad at end of clip.
+    std::vector<float> clip(kClipSamples, 0.0f);
+    std::copy_n(input, num_samples, clip.begin());
+    return clip;
 }
 
 LogMel::LogMel()

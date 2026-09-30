@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <vector>
 
 namespace kws::test {
@@ -210,6 +211,35 @@ TEST_CASE("mel_filterbank weights sum to 1 between first and last peaks", "[log_
         // one falls as the other rises, summing to 1.
         REQUIRE(std::abs(1.0 - weight_sum) < 1e-6);
     }
+}
+
+TEST_CASE("pad_clip short input", "[log_mel]") {
+
+    const std::vector<float> input = {0.1f, -0.4f, 0.75f, -0.1f};
+    const std::vector<float> output = pad_clip(input.data(), input.size());
+
+    REQUIRE(output.size() == kClipSamples);
+
+    for (std::size_t n = 0; n < kClipSamples; ++n) {
+        CAPTURE(n);
+
+        // output should equal input up to input.size(), and zero after.
+        REQUIRE(output[n] == (n < input.size() ? input[n] : 0.0f));
+    }
+}
+
+TEST_CASE("pad_clip input of kClipSamples is identity", "[log_mel]") {
+
+    const std::vector<float> input(kClipSamples, 0.25f);
+
+    REQUIRE(pad_clip(input.data(), input.size()) == input);
+}
+
+TEST_CASE("pad_clip throws on long input", "[log_mel]") {
+
+    const std::vector<float> input(kClipSamples + 1, 0.0f);
+
+    REQUIRE_THROWS_AS(pad_clip(input.data(), input.size()), std::invalid_argument);
 }
 
 } // namespace kws::test

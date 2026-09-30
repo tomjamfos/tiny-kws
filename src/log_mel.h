@@ -12,7 +12,7 @@ namespace kws {
 inline constexpr std::size_t kSampleRate = 16000;
 inline constexpr std::size_t kNyquistHz = kSampleRate / 2;
 
-// Clips are 1 second long after padding/truncation.
+// Clips are 1 second long after padding.
 inline constexpr std::size_t kClipSamples = kSampleRate;
 
 inline constexpr std::size_t kFrameSamples = 480; // 30 ms
@@ -53,6 +53,10 @@ inline constexpr float kLogMelFloor = 1e-6f;
 // Dense HTK scale mel filterbank (no normalisation),
 // kNumMelBins rows of kNumFreqBins weights, row-major.
 std::vector<float> mel_filterbank();
+
+// Returns a copy of input, zero-padded at the end when num_samples < kClipSamples.
+// Throws std::invalid_argument when num_samples > kClipSamples.
+std::vector<float> pad_clip(const float* input, std::size_t num_samples);
 
 class LogMel {
 public:

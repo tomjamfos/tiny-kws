@@ -1,7 +1,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
-#include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -34,18 +34,15 @@ py::array_t<float> log_mel(const py::array& samples) {
         throw py::error_already_set();
     }
 
-    if (clip.ndim() != 1 ||
-        clip.shape(0) > static_cast<py::ssize_t>(kws::kClipSamples)) {
+    if (clip.ndim() != 1) {
         throw std::invalid_argument(
-            "log_mel: "
-            "expected a one-dimensional array containing at most " +
-            std::to_string(kws::kClipSamples) + " samples, got shape " +
+            "log_mel: expected a one-dimensional array, got shape " +
             py::str(clip.attr("shape")).cast<std::string>());
     }
 
-    // Clips shorter than one second are zero-padded.
-    std::vector<float> input(kws::kClipSamples, 0.0f);
-    std::copy_n(clip.data(), clip.shape(0), input.begin());
+    // Clips shorter than one second are zero-padded, longer clips throw.
+    const std::vector<float> input =
+        kws::pad_clip(clip.data(), static_cast<std::size_t>(clip.shape(0)));
 
     // Uninitialised (kNumMelBins, kNumFrames) array.
     // process() writes every element.

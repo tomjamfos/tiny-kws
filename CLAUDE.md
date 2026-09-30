@@ -35,7 +35,7 @@ and `validation_list.txt` / `testing_list.txt` (official splits).
 ## Frontend
 Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaults (deviations noted).
 - Input: 16kHz mono int16 PCM, divided by 32768 to float in `[-1, 1)`,
-  shorter clips zero-padded at the end up to 16000 samples.
+  shorter clips zero-padded at the end up to 16000 samples, longer clips rejected.
 - Frames: 30ms (480 samples), 10ms (160 samples) hop, no centring. Produces 98 frames per clip.
   Framed by window length, which differs from torchaudio. It frames by `n_fft` (512) and centres the
   window in each frame, giving 97 frames offset by 16 samples. To compare, zero-pad the reference
