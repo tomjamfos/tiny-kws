@@ -26,6 +26,7 @@ dev = [
     "pybind11>=2.13",
     "pytest>=8.0",
     "ruff>=0.6",
+    "soundfile>=0.14.0",
 ]
 notebooks = [
     "jupyterlab>=4.0",

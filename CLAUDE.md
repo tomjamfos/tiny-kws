@@ -56,7 +56,7 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
   `cli/` adds ONNX Runtime. Nothing in `src/` or `cli/` may depend on Python or torch.
 - ONNX Runtime (for `cli/`) and Catch2 (for `tests/cpp/`) are fetched by CMake at configure time, not installed system-wide.
 - Dependencies -> base: numpy, onnxruntime. `train` extra: torch, torchaudio, onnx.
-  `dev` group: pybind11, pytest, ruff, plus train. `notebooks` group: jupyterlab, matplotlib.
+  `dev` group: pybind11, pytest, ruff, soundfile, plus train. `notebooks` group: jupyterlab, matplotlib.
   Torch is only imported inside training and export modules, never at package top level.
 - Commands -> `uv sync` builds the Python package and extension. For C++ development:
   `cmake -B build/dev -G Ninja -DPython_EXECUTABLE=$PWD/.venv/bin/python -DTINY_KWS_BUILD_TESTS=ON -DTINY_KWS_BUILD_CLI=ON`,

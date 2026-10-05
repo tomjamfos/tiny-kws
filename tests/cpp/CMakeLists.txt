@@ -23,6 +23,7 @@ add_executable(tiny_kws_tests
     fft_test.cpp
     log_mel_test.cpp
     naive_dft_test.cpp
+    wav_test.cpp
 )
 target_link_libraries(tiny_kws_tests PRIVATE
     tiny_kws_test_support # brings in tiny_kws_core
