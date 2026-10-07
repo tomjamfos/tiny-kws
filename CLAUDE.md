@@ -7,7 +7,7 @@ Inference is CPU-only, with a Raspberry Pi 3 (ARM Cortex-A53, 1 GB RAM) as the p
 
 ## Repo layout
 - `src/` -> C++ frontend: load wavs, FFT, log-mel.
-- `tiny_kws/` -> Python package: dataset, model, training, ONNX export.
+- `tiny_kws/` -> Python package: labels, dataset, model, training, ONNX export.
 - `bindings/` -> Pybind11 module, installed as `tiny_kws._native`.
 - `cli/` -> Standalone C++ inference binary (ONNX Runtime).
 - `scripts/` -> One-off tooling: benchmarks, quantisation.
@@ -23,9 +23,9 @@ Google Speech Commands v0.02, at `data/datasets/speech-commands-v0.02` (gitignor
 Source: `http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz`, extracted into that directory.
 Structure: 35 word folders, `_background_noise_/` (longer recordings for silence and augmentation),
 and `validation_list.txt` / `testing_list.txt` (official splits).
-- Classes, in label order -> 0: `down`, 1: `go`, 2: `left`, 3: `no`, 4: `off`, 5: `on`, 6: `right`,
+- Classes, by class index -> 0: `down`, 1: `go`, 2: `left`, 3: `no`, 4: `off`, 5: `on`, 6: `right`,
   7: `stop`, 8: `up`, 9: `yes`, 10: `unknown` (all other 25 words), 11: `silence`
-  (one-second crops of `_background_noise_/`).
+  (one-second crops of `_background_noise_/`). `tiny_kws/labels.py` is the single source for this.
 - Splits -> `validation_list.txt` and `testing_list.txt` are validation and test, everything else is training.
   The split is by speaker, so never re-split.
 - Balance -> training uses a random subset of `unknown` clips, about as many as a single target word has.
@@ -57,7 +57,8 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - ONNX Runtime (for `cli/`) and Catch2 (for `tests/cpp/`) are fetched by CMake at configure time, not installed system-wide.
 - Dependencies -> base: numpy, onnxruntime. `train` extra: torch, torchaudio, onnx.
   `dev` group: pybind11, pytest, ruff, soundfile, plus train. `notebooks` group: jupyterlab, matplotlib.
-  Torch is only imported inside training and export modules, never at package top level.
+  Torch is imported only in the model, training and export modules, never in `labels`, `dataset`
+  or at package top level, so the base install works without the `train` extra.
 - Commands -> `uv sync` builds the Python package and extension. For C++ development:
   `cmake -B build/dev -G Ninja -DPython_EXECUTABLE=$PWD/.venv/bin/python -DTINY_KWS_BUILD_TESTS=ON -DTINY_KWS_BUILD_CLI=ON`,
   then `cmake --build build/dev` and `ctest --test-dir build/dev`.
