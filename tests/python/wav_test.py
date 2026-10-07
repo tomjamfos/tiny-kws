@@ -88,16 +88,6 @@ def test_directory_raises(tmp_path: Path) -> None:
         _native.load_wav(tmp_path)
 
 
-DATASET = Path(__file__).parents[2] / "data/datasets/speech-commands-v0.02"
-
-
-@pytest.fixture
-def dataset() -> Path:
-    if not DATASET.is_dir():
-        pytest.skip(f"dataset not found at {DATASET}")
-    return DATASET
-
-
 DATASET_CLIPS = [
     # Speech clips all have just fmt and data chunks
     "right/bb05582b_nohash_3.wav",
@@ -110,7 +100,7 @@ DATASET_CLIPS = [
 
 
 @pytest.mark.parametrize("name", DATASET_CLIPS)
-def test_dataset_matches_soundfile(dataset: Path, name: str) -> None:
-    path = dataset / name
+def test_dataset_matches_soundfile(dataset_root: Path, name: str) -> None:
+    path = dataset_root / name
     reference, _ = sf.read(path, dtype="float32")
     np.testing.assert_array_equal(_native.load_wav(path), reference)
