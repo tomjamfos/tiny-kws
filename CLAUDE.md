@@ -21,6 +21,7 @@ Inference is CPU-only, with a Raspberry Pi 3 (ARM Cortex-A53, 1 GB RAM) as the p
 ## Data
 Google Speech Commands v0.02, at `data/datasets/speech-commands-v0.02` (gitignored, may be a symlink).
 Source: `http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz`, extracted into that directory.
+Archive SHA-256: af14739ee7dc311471de98f5f9d2c9191b18aedfe957f4a6ff791c709868ff58.
 Structure: 35 word folders, `_background_noise_/` (longer recordings for silence and augmentation),
 and `validation_list.txt` / `testing_list.txt` (official splits).
 - Classes, by class index -> 0: `down`, 1: `go`, 2: `left`, 3: `no`, 4: `off`, 5: `on`, 6: `right`,
