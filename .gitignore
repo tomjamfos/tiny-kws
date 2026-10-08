@@ -1,5 +1,5 @@
 .vscode/
-data/datasets
+data/
 build/
 .pytest_cache/
 .venv/

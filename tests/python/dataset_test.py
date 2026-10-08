@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tiny_kws import dataset, labels
@@ -91,3 +92,30 @@ def test_missing_word_folder_raises(stub_dataset_root: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="zero"):
         dataset.build_splits(stub_dataset_root)
+
+
+def test_rms() -> None:
+    assert dataset.rms(np.full(1_000, -0.25, np.float32)) == 0.25
+
+
+def test_pad_clip_short() -> None:
+    padded_clip = dataset.pad_clip(np.ones(8, np.float32))
+    assert padded_clip.dtype == np.float32
+    assert len(padded_clip) == dataset.CLIP_SAMPLES
+    assert np.all(padded_clip[:8] == 1.0)
+    assert np.all(padded_clip[8:] == 0.0)
+
+
+def test_pad_clip_full_length_unchanged() -> None:
+    clip = np.arange(dataset.CLIP_SAMPLES, dtype=np.float32)
+    assert np.array_equal(dataset.pad_clip(clip), clip)
+
+
+def test_pad_clip_returns_copy() -> None:
+    clip = np.ones(dataset.CLIP_SAMPLES, dtype=np.float32)
+    assert not np.shares_memory(dataset.pad_clip(clip), clip)
+
+
+def test_pad_clip_long_raises() -> None:
+    with pytest.raises(ValueError, match="16,001"):
+        dataset.pad_clip(np.zeros(dataset.CLIP_SAMPLES + 1, np.float32))

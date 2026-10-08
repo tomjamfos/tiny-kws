@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+from numpy.typing import NDArray
+
 from tiny_kws.labels import TARGET_WORDS, UNKNOWN_WORDS
+
+CLIP_SAMPLES = 16_000  # one second at 16 kHz, kClipSamples in src/log_mel.h
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,3 +62,27 @@ def build_splits(dataset_root: Path) -> Splits:
         validation=tuple(sorted(validation)),
         test=tuple(sorted(test)),
     )
+
+
+def rms(x: NDArray[np.float32]) -> float:
+    """
+    Root mean square of x.
+    Computed in float64 and returned as float.
+    """
+    return float(np.sqrt(np.mean(np.square(x, dtype=np.float64))))
+
+
+def pad_clip(clip: NDArray[np.float32]) -> NDArray[np.float32]:
+    """
+    Zero-pad clip at its end to CLIP_SAMPLES. Always returns a new array.
+
+    Raises ValueError if clip is longer than CLIP_SAMPLES.
+    """
+    if len(clip) > CLIP_SAMPLES:
+        raise ValueError(
+            f"expected no more than {CLIP_SAMPLES:,} samples, got {len(clip):,} samples"
+        )
+
+    out = np.zeros(CLIP_SAMPLES, np.float32)
+    out[: len(clip)] = clip
+    return out
