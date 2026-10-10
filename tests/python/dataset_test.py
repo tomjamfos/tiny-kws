@@ -1,9 +1,29 @@
+import shutil
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 from tiny_kws import dataset, labels
+
+
+class FixedDrawGenerator(np.random.Generator):
+    """
+    Let tests choose each draw and assert exact equalities.
+    Returns values from integers() and uniform() in call order.
+    """
+
+    def __init__(self, *draws: float) -> None:
+        super().__init__(np.random.PCG64())
+        self._draws = iter(draws)
+
+    def integers(self, *args: Any, **kwargs: Any) -> Any:
+        return next(self._draws)
+
+    def uniform(self, *args: Any, **kwargs: Any) -> Any:
+        return next(self._draws)
 
 
 @pytest.fixture(scope="module")
@@ -27,7 +47,23 @@ def stub_dataset_root(tmp_path: Path) -> Path:
         (tmp_path / key).touch()
     (tmp_path / "validation_list.txt").write_text("down/b.wav\n")
     (tmp_path / "testing_list.txt").write_text("bed/e.wav\n")
+
+    (noise_dir := tmp_path / "_background_noise_").mkdir()
+
+    # b.wav is the shortest valid length.
+    for name, length in (("b.wav", 16_000), ("a.wav", 20_000)):
+        sf.write(noise_dir / name, np.full(length, 1_000, np.int16), 16_000, "PCM_16")
+
+    # Mirrors speech-commands-v0.02/_background_noise_,
+    # load_noise must skip non-wav files.
+    (noise_dir / "README.md").touch()
+
     return tmp_path
+
+
+@pytest.fixture(scope="module")
+def noise_sources(dataset_root: Path) -> dataset.NoiseSources:
+    return dataset.load_noise(dataset_root)
 
 
 def test_split_wav_counts(splits: dataset.Splits) -> None:
@@ -119,3 +155,133 @@ def test_pad_clip_returns_copy() -> None:
 def test_pad_clip_long_raises() -> None:
     with pytest.raises(ValueError, match="16,001"):
         dataset.pad_clip(np.zeros(dataset.CLIP_SAMPLES + 1, np.float32))
+
+
+def test_noise_source_count(noise_sources: dataset.NoiseSources) -> None:
+    assert len(noise_sources) == 6
+
+
+def test_noise_normalised(noise_sources: dataset.NoiseSources) -> None:
+    for source in noise_sources:
+        source_rms = np.sqrt(np.mean(np.square(source)))
+        assert source_rms == pytest.approx(1.0, rel=1e-6)
+
+
+def test_noise_source_arrays(noise_sources: dataset.NoiseSources) -> None:
+    for source in noise_sources:
+        assert source.dtype == np.float32
+        assert source.ndim == 1
+        assert len(source) >= dataset.CLIP_SAMPLES
+
+
+def test_noise_short_file_raises(stub_dataset_root: Path) -> None:
+    sf.write(
+        stub_dataset_root / "_background_noise_/b.wav",
+        np.full(15_999, 1_000, np.int16),
+        16_000,
+        "PCM_16",
+    )
+    with pytest.raises(ValueError, match="b.wav"):
+        dataset.load_noise(stub_dataset_root)
+
+
+def test_noise_missing_folder_raises(stub_dataset_root: Path) -> None:
+    shutil.rmtree(stub_dataset_root / "_background_noise_")
+    with pytest.raises(FileNotFoundError, match="_background_noise_"):
+        dataset.load_noise(stub_dataset_root)
+
+
+def test_mix_noise_level() -> None:
+    rng = np.random.default_rng(seed=0)
+
+    # level_db cancels the median word RMS anchor in mix_noise,
+    # so noise mixed with a silent clip is at -6 dBFS (amplitude: 0.5).
+    # One full-length source and a zero-width range fix every draw.
+    source = np.ones(dataset.CLIP_SAMPLES, np.float32)
+    level_db = 20.0 * np.log10(0.5) - dataset.MEDIAN_WORD_RMS_DBFS
+    mixed = dataset.mix_noise(
+        np.zeros(dataset.CLIP_SAMPLES, np.float32), (source,), rng, (level_db, level_db)
+    )
+    assert mixed == pytest.approx(0.5)
+
+
+def test_mix_noise_clamps() -> None:
+    rng = np.random.default_rng(seed=0)
+
+    # clip and noise are in phase, so their sum exceeds ±1.
+    # Alternating signs exercise the clamp at both bounds.
+    even = np.arange(dataset.CLIP_SAMPLES) % 2 == 0
+    source = np.where(even, -1.0, 1.0).astype(np.float32)
+    clip = 0.9 * source
+
+    # Noise at -6 dBFS (amplitude: 0.5) before mixing with clip.
+    # Anything above -20 dBFS (amplitude: 0.1) also passes.
+    level_db = 20.0 * np.log10(0.5) - dataset.MEDIAN_WORD_RMS_DBFS
+
+    mixed = dataset.mix_noise(clip, (source,), rng, (level_db, level_db))
+    assert np.array_equal(mixed, source)
+
+
+def test_mix_noise_draw_order() -> None:
+
+    # Source index, crop start,
+    # and a level offset in dB that cancels the median word RMS.
+    rng = FixedDrawGenerator(1, 5, -dataset.MEDIAN_WORD_RMS_DBFS)
+
+    sources = (
+        # A wrong source index would give all -1s.
+        -np.ones(dataset.CLIP_SAMPLES, np.float32),
+        # mix_noise doesn't pad, so a non-zero crop start needs samples beyond one clip.
+        np.ones(dataset.CLIP_SAMPLES + 5, np.float32),
+    )
+    sources[1][5] = -1.0  # -1 acts as a sentinel for the expected crop start
+
+    mixed = dataset.mix_noise(
+        np.zeros(dataset.CLIP_SAMPLES, np.float32), sources, rng, (-70.0, -5.0)
+    )
+    expected = np.ones(dataset.CLIP_SAMPLES, np.float32)
+    expected[0] = -1.0
+
+    assert np.array_equal(mixed, expected)
+
+
+def test_mix_noise_returns_new_array() -> None:
+    rng = np.random.default_rng(seed=0)
+    clip = np.zeros(dataset.CLIP_SAMPLES, np.float32)
+    source = np.ones(dataset.CLIP_SAMPLES, np.float32)
+    mixed = dataset.mix_noise(clip, (source,), rng, (-70.0, -5.0))
+
+    assert mixed.dtype == np.float32
+    assert len(mixed) == dataset.CLIP_SAMPLES
+    assert not np.shares_memory(mixed, clip)
+    assert not np.shares_memory(mixed, source)
+    assert np.all(clip == 0.0)
+
+
+def test_time_shift_zero_is_identity() -> None:
+    rng = np.random.default_rng(seed=0)
+    clip = np.arange(dataset.CLIP_SAMPLES, dtype=np.float32)
+    shifted_clip = dataset.time_shift(clip, rng, max_shift_samples=0)
+
+    assert shifted_clip.dtype == np.float32
+    assert np.array_equal(shifted_clip, clip)
+    assert not np.shares_memory(shifted_clip, clip)
+
+
+# Identity, the smallest possible shift each way, and a full clip each way.
+@pytest.mark.parametrize("shift", [0, -1, 1, -16_000, 16_000])
+def test_time_shift_shifts_and_fills(shift: int) -> None:
+
+    # Start at 1 so a zero can only come from the fill.
+    clip = np.arange(1, dataset.CLIP_SAMPLES + 1, dtype=np.float32)
+
+    shifted_clip = dataset.time_shift(
+        clip, FixedDrawGenerator(shift), max_shift_samples=16_000
+    )
+    expected = np.roll(clip, shift)
+    if shift >= 0:
+        expected[:shift] = 0.0
+    else:
+        expected[shift:] = 0.0
+
+    assert np.array_equal(shifted_clip, expected)
