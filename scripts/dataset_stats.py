@@ -13,8 +13,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from tiny_kws._native import load_wav
-from tiny_kws.dataset import build_splits, pad_clip, rms
+from tiny_kws.dataset import build_splits, load_word_clip, rms
 
 DATA_ROOT = Path(__file__).parents[1] / "data"
 DATASET_ROOT = DATA_ROOT / "datasets/speech-commands-v0.02"
@@ -28,7 +27,7 @@ def main() -> None:
     per_clip_rms = []
     for key in tqdm(splits.train, unit="clip", leave=False):
         # RMS over full padded clips, as this is what the model sees.
-        per_clip_rms.append(rms(pad_clip(load_wav(DATASET_ROOT / key))))
+        per_clip_rms.append(rms(load_word_clip(DATASET_ROOT, key)))
 
     median_rms = float(np.median(per_clip_rms))
     median_rms_dbfs = 20.0 * np.log10(median_rms)

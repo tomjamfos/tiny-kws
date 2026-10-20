@@ -1,4 +1,5 @@
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -6,7 +7,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from tiny_kws import dataset, labels
+from tiny_kws import _native, dataset, labels
 
 
 class FixedDrawGenerator(np.random.Generator):
@@ -64,6 +65,15 @@ def stub_dataset_root(tmp_path: Path) -> Path:
 @pytest.fixture(scope="module")
 def noise_sources(dataset_root: Path) -> dataset.NoiseSources:
     return dataset.load_noise(dataset_root)
+
+
+def test_draw_stream_values() -> None:
+    assert [(stream.name, stream.value) for stream in dataset.DrawStream] == [
+        ("EPOCH_PLAN", 0),
+        ("WORD_AUGMENTATION", 1),
+        ("TRAIN_SILENCE", 2),
+        ("EVALUATION_SILENCE", 3),
+    ]
 
 
 def test_split_wav_counts(splits: dataset.Splits) -> None:
@@ -130,6 +140,19 @@ def test_missing_word_folder_raises(stub_dataset_root: Path) -> None:
         dataset.build_splits(stub_dataset_root)
 
 
+def test_clip_class_index_target_word() -> None:
+    assert dataset.clip_class_index("yes/a.wav") == labels.CLASS_NAMES.index("yes")
+
+
+def test_clip_class_index_unknown_word() -> None:
+    assert dataset.clip_class_index("bed/a.wav") == labels.UNKNOWN_CLASS_INDEX
+
+
+def test_clip_class_index_non_word_raises() -> None:
+    with pytest.raises(KeyError, match="_background_noise_"):
+        dataset.clip_class_index("_background_noise_/a.wav")
+
+
 def test_rms() -> None:
     assert dataset.rms(np.full(1_000, -0.25, np.float32)) == 0.25
 
@@ -155,6 +178,20 @@ def test_pad_clip_returns_copy() -> None:
 def test_pad_clip_long_raises() -> None:
     with pytest.raises(ValueError, match="16,001"):
         dataset.pad_clip(np.zeros(dataset.CLIP_SAMPLES + 1, np.float32))
+
+
+def test_load_word_clip_pads(stub_dataset_root: Path) -> None:
+
+    # load_wav converts PCM_16 to float by dividing by 32_768,
+    # so the 8 samples load as exactly 0.5. The rest of the clip is zero padding.
+    sf.write(
+        stub_dataset_root / "down/a.wav", np.full(8, 16_384, np.int16), 16_000, "PCM_16"
+    )
+    expected = np.zeros(dataset.CLIP_SAMPLES, np.float32)
+    expected[:8] = 0.5
+
+    clip = dataset.load_word_clip(stub_dataset_root, "down/a.wav")
+    assert np.array_equal(clip, expected)
 
 
 def test_noise_source_count(noise_sources: dataset.NoiseSources) -> None:
@@ -258,6 +295,25 @@ def test_mix_noise_returns_new_array() -> None:
     assert np.all(clip == 0.0)
 
 
+def test_generate_silence_clip_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    rng = np.random.default_rng(seed=0)
+
+    # Patch NOISE_RANGE_DB to a fixed level that cancels the median word RMS anchor,
+    # putting the clip at -6 dBFS (amplitude: 0.5).
+    # The unpatched upper bound puts the clip at the anchor, below -6 dBFS,
+    # so 0.5 can only come from the patched one.
+    # One full-length source and a zero-width range fix every draw.
+    source = np.ones(dataset.CLIP_SAMPLES, np.float32)
+    level_db = 20.0 * np.log10(0.5) - dataset.MEDIAN_WORD_RMS_DBFS
+    monkeypatch.setattr(dataset, "NOISE_RANGE_DB", (level_db, level_db))
+
+    clip = dataset.generate_silence_clip((source,), rng)
+
+    assert clip.dtype == np.float32
+    assert len(clip) == dataset.CLIP_SAMPLES
+    assert clip == pytest.approx(0.5)
+
+
 def test_time_shift_zero_is_identity() -> None:
     rng = np.random.default_rng(seed=0)
     clip = np.arange(dataset.CLIP_SAMPLES, dtype=np.float32)
@@ -285,3 +341,168 @@ def test_time_shift_shifts_and_fills(shift: int) -> None:
         expected[shift:] = 0.0
 
     assert np.array_equal(shifted_clip, expected)
+
+
+def test_config_accepts_bounds() -> None:
+    dataset.AugmentationConfig()
+    dataset.AugmentationConfig(max_shift_fraction=1.0)
+    dataset.AugmentationConfig(noise_range_db=(-6.0, -6.0))
+
+
+@pytest.mark.parametrize("shift_fraction", [-1e-5, 2.0])
+def test_config_shift_out_of_range_raises(shift_fraction: float) -> None:
+    with pytest.raises(ValueError, match="max_shift_fraction"):
+        dataset.AugmentationConfig(max_shift_fraction=shift_fraction)
+
+
+def test_config_noise_range_reversed_raises() -> None:
+    with pytest.raises(ValueError, match="noise_range_db"):
+        dataset.AugmentationConfig(noise_range_db=(-5.0, -70.0))
+
+
+type TrainDatasetFactory = Callable[[dataset.AugmentationConfig], dataset.TrainDataset]
+
+AUGMENTATION_ON = dataset.AugmentationConfig(
+    max_shift_fraction=0.1, noise_range_db=dataset.NOISE_RANGE_DB
+)
+
+
+@pytest.fixture(scope="module")
+def make_train_dataset(
+    dataset_root: Path, splits: dataset.Splits, noise_sources: dataset.NoiseSources
+) -> TrainDatasetFactory:
+    def make(augmentation: dataset.AugmentationConfig) -> dataset.TrainDataset:
+        return dataset.TrainDataset(
+            dataset_root=dataset_root,
+            clip_keys=splits.train,
+            noise_sources=noise_sources,
+            augmentation=augmentation,
+            seed=0,
+        )
+
+    return make
+
+
+@pytest.mark.parametrize("silence", [False, True])
+def test_train_dataset_reproducible(
+    make_train_dataset: TrainDatasetFactory, silence: bool
+) -> None:
+
+    request = dataset.Request(silence=silence, epoch=1, index=2)
+
+    # Build this request, then one with silence flipped,
+    # so that any draw state shared between calls would change the next build.
+    used = make_train_dataset(AUGMENTATION_ON)
+    used[request]
+    used[dataset.Request(silence=not silence, epoch=0, index=0)]
+
+    # Built again, the example must match a fresh dataset's.
+    features, class_index = used[request]
+    fresh_features, fresh_class_index = make_train_dataset(AUGMENTATION_ON)[request]
+
+    assert np.array_equal(features, fresh_features)
+    assert class_index == fresh_class_index
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (
+            dataset.Request(silence=False, epoch=0, index=0),
+            dataset.Request(silence=False, epoch=1, index=0),
+        ),
+        (
+            dataset.Request(silence=False, epoch=0, index=0),
+            dataset.Request(silence=False, epoch=0, index=1),
+        ),
+        (
+            dataset.Request(silence=True, epoch=0, index=0),
+            dataset.Request(silence=True, epoch=1, index=0),
+        ),
+        (
+            dataset.Request(silence=True, epoch=0, index=0),
+            dataset.Request(silence=True, epoch=0, index=1),
+        ),
+    ],
+    ids=["word epoch", "word index", "silence epoch", "silence index"],
+)
+def test_train_dataset_key_changes_draws(
+    dataset_root: Path,
+    splits: dataset.Splits,
+    noise_sources: dataset.NoiseSources,
+    monkeypatch: pytest.MonkeyPatch,
+    first: dataset.Request,
+    second: dataset.Request,
+) -> None:
+
+    # Compare clips rather than features as the log-mel
+    # floor can flatten two quiet draws to the same features.
+    monkeypatch.setattr(dataset, "log_mel", lambda clip: clip)
+
+    # Both positions hold the same clip, so only the key can make word clips differ.
+    train_dataset = dataset.TrainDataset(
+        dataset_root=dataset_root,
+        clip_keys=(splits.train[0], splits.train[0]),
+        noise_sources=noise_sources,
+        augmentation=AUGMENTATION_ON,
+        seed=0,
+    )
+
+    assert not np.array_equal(train_dataset[first][0], train_dataset[second][0])
+
+
+def test_train_dataset_augmentation_off(
+    make_train_dataset: TrainDatasetFactory, dataset_root: Path, splits: dataset.Splits
+) -> None:
+
+    train_dataset = make_train_dataset(dataset.AugmentationConfig())
+    clip_key = splits.train[2]
+
+    features, class_index = train_dataset[
+        dataset.Request(silence=False, epoch=0, index=2)
+    ]
+    clip = dataset.load_word_clip(dataset_root, clip_key)
+
+    assert np.array_equal(features, _native.log_mel(clip))
+    assert features.dtype == np.float32
+    assert class_index == dataset.clip_class_index(clip_key)
+
+
+def test_train_dataset_silence_class(make_train_dataset: TrainDatasetFactory) -> None:
+    train_dataset = make_train_dataset(AUGMENTATION_ON)
+    features, class_index = train_dataset[
+        dataset.Request(silence=True, epoch=0, index=0)
+    ]
+
+    assert features.shape == (32, 98)
+    assert features.dtype == np.float32
+    assert class_index == labels.SILENCE_CLASS_INDEX
+
+
+def test_train_dataset_max_shift_rounds(
+    make_train_dataset: TrainDatasetFactory,
+) -> None:
+
+    # 0.0001 of CLIP_SAMPLES is 1.6, which rounds to 2 but truncates to 1.
+    augmentation = dataset.AugmentationConfig(max_shift_fraction=1e-4)
+
+    assert make_train_dataset(augmentation).max_shift_samples == 2
+
+
+def test_train_dataset_noise_after_shift(
+    make_train_dataset: TrainDatasetFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    # Instead of applying time shift, zero the whole clip.
+    # Noise mixed after this survives, noise mixed before doesn't.
+    # A fixed level at the median word RMS keeps the noise above the log-mel floor.
+    monkeypatch.setattr(
+        dataset, "time_shift", lambda clip, rng, max_shift_samples: np.zeros_like(clip)
+    )
+    train_dataset = make_train_dataset(
+        dataset.AugmentationConfig(noise_range_db=(0.0, 0.0))
+    )
+    features, _ = train_dataset[dataset.Request(silence=False, epoch=0, index=0)]
+    silent = _native.log_mel(np.zeros(dataset.CLIP_SAMPLES, np.float32))
+
+    assert not np.array_equal(features, silent)
