@@ -153,6 +153,25 @@ def test_clip_class_index_non_word_raises() -> None:
         dataset.clip_class_index("_background_noise_/a.wav")
 
 
+def test_clips_per_target_word_rounds_up_and_skips_unknown() -> None:
+
+    # 11 clips in TARGET_WORDS gives 1.1 per word, which rounds up to 2.
+    # Counting the 10 clips in UNKNOWN_WORDS as well would round to 3,
+    # and rounding to nearest or truncation would give 1.
+    target_clip_keys, unknown_clip_keys = ("yes/a.wav",) * 11, ("bed/a.wav",) * 10
+
+    assert dataset.clips_per_target_word(target_clip_keys + unknown_clip_keys) == 2
+
+
+def test_clips_per_target_word_split_counts(splits: dataset.Splits) -> None:
+
+    # Clips of words in TARGET_WORDS:
+    # 30,769 in train, 3,703 in validation and 4,074 in test.
+    assert dataset.clips_per_target_word(splits.train) == 3_077
+    assert dataset.clips_per_target_word(splits.validation) == 371
+    assert dataset.clips_per_target_word(splits.test) == 408
+
+
 def test_rms() -> None:
     assert dataset.rms(np.full(1_000, -0.25, np.float32)) == 0.25
 
@@ -506,3 +525,70 @@ def test_train_dataset_noise_after_shift(
     silent = _native.log_mel(np.zeros(dataset.CLIP_SAMPLES, np.float32))
 
     assert not np.array_equal(features, silent)
+
+
+# One clip of each word in TARGET_WORDS and one of UNKNOWN_WORDS,
+# so the "unknown" subset is sized 1 and must be the single "unknown" clip.
+# Only the order of the plan is drawn.
+ONE_CLIP_PER_CLASS = (*(f"{word}/a.wav" for word in labels.TARGET_WORDS), "bed/a.wav")
+
+
+def test_train_sampler_plan_contents() -> None:
+    sampler = dataset.TrainSampler(clip_keys=ONE_CLIP_PER_CLASS, seed=0)
+    sampler.epoch = 2
+    plan = list(sampler)
+
+    # "silence" clip 0 and one of every word clip, all in epoch 2.
+    expected = {
+        dataset.Request(silence=False, epoch=2, index=index) for index in range(11)
+    }
+    expected.add(dataset.Request(silence=True, epoch=2, index=0))
+
+    assert len(plan) == len(expected)
+    assert set(plan) == expected
+
+
+def test_train_sampler_train_split_counts(splits: dataset.Splits) -> None:
+    sampler = dataset.TrainSampler(clip_keys=splits.train, seed=0)
+    plan = list(sampler)
+
+    unknown_indices = []
+    for request in plan:
+        if request.silence:
+            continue
+        class_index = dataset.clip_class_index(splits.train[request.index])
+        if class_index == labels.UNKNOWN_CLASS_INDEX:
+            unknown_indices.append(request.index)
+
+    # 30,769 clips of words in TARGET_WORDS.
+    # 3,077 "silence" clips and 3,077 "unknown" word clips.
+    assert sum(request.silence for request in plan) == 3_077
+    assert len(set(unknown_indices)) == len(unknown_indices) == 3_077
+    assert len(sampler) == len(plan) == 36_923
+
+
+def test_train_sampler_reproducible(splits: dataset.Splits) -> None:
+
+    # Plan epoch 0 first, so that any draw state
+    # kept between plans would change the next one.
+    used = dataset.TrainSampler(clip_keys=splits.train, seed=0)
+    list(used)
+
+    # Then epoch 1 must match a fresh sampler's, as when resuming a run.
+    used.epoch = 1
+    fresh = dataset.TrainSampler(clip_keys=splits.train, seed=0)
+    fresh.epoch = 1
+
+    assert list(used) == list(fresh)
+
+
+def test_train_sampler_epoch_changes_order() -> None:
+    sampler = dataset.TrainSampler(clip_keys=ONE_CLIP_PER_CLASS, seed=0)
+    epoch_0 = [(request.silence, request.index) for request in sampler]
+
+    sampler.epoch = 1
+    epoch_1 = [(request.silence, request.index) for request in sampler]
+
+    # Compared without the epoch, since every
+    # Request carries it and would always differ.
+    assert epoch_0 != epoch_1

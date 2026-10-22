@@ -1,4 +1,6 @@
 import enum
+import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from tiny_kws._native import load_wav, log_mel
 from tiny_kws.labels import (
     SILENCE_CLASS_INDEX,
     TARGET_WORDS,
+    UNKNOWN_CLASS_INDEX,
     UNKNOWN_WORDS,
     WORD_TO_CLASS_INDEX,
 )
@@ -119,6 +122,19 @@ def clip_class_index(clip_key: str) -> int:
     Raises KeyError if the word isn't in TARGET_WORDS or UNKNOWN_WORDS.
     """
     return WORD_TO_CLASS_INDEX[clip_key.partition("/")[0]]
+
+
+def clips_per_target_word(clip_keys: tuple[str, ...]) -> int:
+    """
+    How many clips each word in TARGET_WORDS has in clip_keys, on average, rounded up.
+    Gives "silence" and the training "unknown" subset as many clips as the average word.
+
+    Raises KeyError if a clip key's word isn't in TARGET_WORDS or UNKNOWN_WORDS.
+    """
+    num_target_clips = sum(
+        clip_class_index(clip_key) != UNKNOWN_CLASS_INDEX for clip_key in clip_keys
+    )
+    return math.ceil(num_target_clips / len(TARGET_WORDS))
 
 
 def rms(x: NDArray[np.float32]) -> float:
@@ -348,3 +364,56 @@ class TrainDataset:
             clip = mix_noise(clip, self.noise_sources, noise_rng, self.noise_range_db)
 
         return log_mel(clip), clip_class_index(clip_key)
+
+
+class TrainSampler:
+    """
+    Plans each epoch's Requests for TrainDataset, in shuffled order.
+
+    Each epoch Requests all TARGET_WORDS clips, generated "silence" clips
+    and a random subset of UNKNOWN_WORDS clips. "silence" and "unknown"
+    are each set to the average clip count per word in TARGET_WORDS.
+
+    epoch must be updated before each iteration,
+    otherwise the previous epoch's Requests repeat.
+
+    Requests identify word clips by position,
+    so clip_keys must match those passed to TrainDataset.
+    """
+
+    def __init__(self, *, clip_keys: tuple[str, ...], seed: int) -> None:
+
+        target_positions, unknown_positions = [], []
+        for position, clip_key in enumerate(clip_keys):
+            if clip_class_index(clip_key) == UNKNOWN_CLASS_INDEX:
+                unknown_positions.append(position)
+            else:
+                target_positions.append(position)
+
+        self.target_positions = tuple(target_positions)
+        self.unknown_positions = tuple(unknown_positions)
+
+        self.clips_per_target_word = clips_per_target_word(clip_keys)
+        self.seed = seed
+        self.epoch = 0
+
+    def __len__(self) -> int:
+        return len(self.target_positions) + 2 * self.clips_per_target_word
+
+    def __iter__(self) -> Iterator[Request]:
+        rng = stream_rng(self.seed, DrawStream.EPOCH_PLAN, self.epoch)
+
+        unknown_subset = rng.choice(
+            self.unknown_positions, self.clips_per_target_word, replace=False
+        ).tolist()
+        requests = [
+            Request(silence=False, epoch=self.epoch, index=index)
+            for index in (*self.target_positions, *unknown_subset)
+        ]
+        requests += [
+            Request(silence=True, epoch=self.epoch, index=index)
+            for index in range(self.clips_per_target_word)
+        ]
+
+        rng.shuffle(requests)
+        return iter(requests)
