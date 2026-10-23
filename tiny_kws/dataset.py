@@ -3,6 +3,7 @@ import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -29,6 +30,11 @@ MEDIAN_WORD_RMS_DBFS = -24.47
 # clip close to all-zero. The upper bound is the median word level.
 NOISE_RANGE_DB = (-70.0, 0.0)
 
+# Used to seed the validation and test "silence" draws in place of the run seed.
+# Must keep its value to ensure every run is scored on the same clips.
+# Generated with secrets.randbits(32).
+EVALUATION_SILENCE_SEED = 3120536195
+
 
 @enum.unique
 class DrawStream(enum.IntEnum):
@@ -44,7 +50,8 @@ class DrawStream(enum.IntEnum):
     EPOCH_PLAN = 0
     WORD_AUGMENTATION = 1
     TRAIN_SILENCE = 2
-    EVALUATION_SILENCE = 3
+    VALIDATION_SILENCE = 3
+    TEST_SILENCE = 4
 
 
 def stream_rng(seed: int, stream: DrawStream, *key: int) -> np.random.Generator:
@@ -417,3 +424,51 @@ class TrainSampler:
 
         rng.shuffle(requests)
         return iter(requests)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EvaluationSet:
+    """
+    Features and class indices of a validation or test split.
+
+    Word clips keep their position in the split's clip keys,
+    and generated "silence" clips follow them.
+    """
+
+    features: NDArray[np.float32]
+    class_indices: NDArray[np.int64]
+
+
+def build_evaluation_set(
+    *,
+    dataset_root: Path,
+    splits: Splits,
+    noise_sources: NoiseSources,
+    split_name: Literal["validation", "test"],
+) -> EvaluationSet:
+    """
+    Build the EvaluationSet of the validation or test split, without augmentation.
+
+    Holds every word clip in the split, "unknown" included.
+    "silence" is set to the average clip count per word in TARGET_WORDS.
+    The "silence" clips of both validation and test are fixed across runs.
+    """
+    clip_keys, silence_stream = {
+        "validation": (splits.validation, DrawStream.VALIDATION_SILENCE),
+        "test": (splits.test, DrawStream.TEST_SILENCE),
+    }[split_name]
+
+    features, class_indices = [], []
+    for clip_key in clip_keys:
+        features.append(log_mel(load_word_clip(dataset_root, clip_key)))
+        class_indices.append(clip_class_index(clip_key))
+
+    for index in range(clips_per_target_word(clip_keys)):
+        rng = stream_rng(EVALUATION_SILENCE_SEED, silence_stream, index)
+        features.append(log_mel(generate_silence_clip(noise_sources, rng)))
+        class_indices.append(SILENCE_CLASS_INDEX)
+
+    return EvaluationSet(
+        features=np.stack(features),
+        class_indices=np.array(class_indices, np.int64),
+    )

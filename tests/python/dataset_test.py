@@ -1,7 +1,7 @@
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -72,7 +72,8 @@ def test_draw_stream_values() -> None:
         ("EPOCH_PLAN", 0),
         ("WORD_AUGMENTATION", 1),
         ("TRAIN_SILENCE", 2),
-        ("EVALUATION_SILENCE", 3),
+        ("VALIDATION_SILENCE", 3),
+        ("TEST_SILENCE", 4),
     ]
 
 
@@ -592,3 +593,104 @@ def test_train_sampler_epoch_changes_order() -> None:
     # Compared without the epoch, since every
     # Request carries it and would always differ.
     assert epoch_0 != epoch_1
+
+
+type EvaluationSetFactory = Callable[
+    [dataset.Splits, Literal["validation", "test"]], dataset.EvaluationSet
+]
+
+
+@pytest.fixture(scope="module")
+def make_evaluation_set(
+    dataset_root: Path, noise_sources: dataset.NoiseSources
+) -> EvaluationSetFactory:
+    def make(
+        splits: dataset.Splits, split_name: Literal["validation", "test"]
+    ) -> dataset.EvaluationSet:
+        return dataset.build_evaluation_set(
+            dataset_root=dataset_root,
+            splits=splits,
+            noise_sources=noise_sources,
+            split_name=split_name,
+        )
+
+    return make
+
+
+@pytest.fixture(scope="module")
+def evaluation_splits(splits: dataset.Splits) -> dataset.Splits:
+    """
+    The first validation and test clip of each word in TARGET_WORDS,
+    then the first clip of "bed".
+    Each split holds one word clip per class, in class index order.
+    """
+    validation, test = [], []
+    for word in (*labels.TARGET_WORDS, "bed"):
+        validation.append(
+            next(key for key in splits.validation if key.startswith(f"{word}/"))
+        )
+        test.append(next(key for key in splits.test if key.startswith(f"{word}/")))
+
+    return dataset.Splits(train=(), validation=tuple(validation), test=tuple(test))
+
+
+@pytest.mark.parametrize("split_name", ["validation", "test"])
+def test_evaluation_set_contents(
+    make_evaluation_set: EvaluationSetFactory,
+    dataset_root: Path,
+    evaluation_splits: dataset.Splits,
+    split_name: Literal["validation", "test"],
+) -> None:
+
+    evaluation_set = make_evaluation_set(evaluation_splits, split_name)
+
+    # 10 clips in TARGET_WORDS gives 1 "silence" clip,
+    # after the 11 word clips, so each row's class index is its position.
+    assert evaluation_set.features.shape == (12, 32, 98)
+    assert evaluation_set.features.dtype == np.float32
+    assert np.array_equal(evaluation_set.class_indices, np.arange(12))
+    assert evaluation_set.class_indices.dtype == np.int64
+
+    clip_keys = getattr(evaluation_splits, split_name)
+    for row, clip_key in enumerate(clip_keys):
+        clip = dataset.load_word_clip(dataset_root, clip_key)
+        assert np.array_equal(evaluation_set.features[row], _native.log_mel(clip))
+
+
+def test_evaluation_set_silence_draws_differ(
+    make_evaluation_set: EvaluationSetFactory,
+    evaluation_splits: dataset.Splits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    # Compare clips rather than features as the log-mel
+    # floor can flatten two quiet draws to the same features.
+    monkeypatch.setattr(dataset, "log_mel", lambda clip: clip)
+
+    # clips_per_target_word rounds up the average clip count per word,
+    # so 11 clips in TARGET_WORDS gives 2 "silence" clips, in rows 11 and 12.
+    clip_keys = (evaluation_splits.validation[0],) * 11
+
+    # Both splits hold the same clips, so only the stream can make them differ.
+    splits = dataset.Splits(train=(), validation=clip_keys, test=clip_keys)
+    validation = make_evaluation_set(splits, "validation")
+    test = make_evaluation_set(splits, "test")
+
+    assert not np.array_equal(validation.features[11], validation.features[12])
+    assert not np.array_equal(validation.features[11], test.features[11])
+
+
+def test_evaluation_set_reproducible(
+    make_evaluation_set: EvaluationSetFactory, evaluation_splits: dataset.Splits
+) -> None:
+
+    # Each "silence" clip depends only on its split
+    # and index, so a second build must match.
+    first = make_evaluation_set(evaluation_splits, "validation")
+    second = make_evaluation_set(evaluation_splits, "validation")
+
+    assert np.array_equal(first.features, second.features)
+
+
+def test_evaluation_silence_seed_value() -> None:
+    assert dataset.EVALUATION_SILENCE_SEED == 3120536195
