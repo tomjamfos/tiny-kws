@@ -7,7 +7,7 @@ Inference is CPU-only, with a Raspberry Pi 3 (ARM Cortex-A53, 1 GB RAM) as the p
 
 ## Repo layout
 - `src/` -> C++ frontend: load wavs, FFT, log-mel.
-- `tiny_kws/` -> Python package: labels, dataset, model, training, ONNX export.
+- `tiny_kws/` -> Python package: labels, dataset, metrics, model, training, ONNX export.
 - `bindings/` -> Pybind11 module, installed as `tiny_kws._native`.
 - `cli/` -> Standalone C++ inference binary (ONNX Runtime).
 - `scripts/` -> One-off tooling: benchmarks, quantisation.
@@ -58,7 +58,7 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - ONNX Runtime (for `cli/`) and Catch2 (for `tests/cpp/`) are fetched by CMake at configure time, not installed system-wide.
 - Dependencies -> base: numpy, onnxruntime. `train` extra: torch, torchaudio, onnx.
   `dev` group: pybind11, pytest, ruff, soundfile, plus train. `notebooks` group: jupyterlab, matplotlib.
-  Torch is imported only in the model, training and export modules, never in `labels`, `dataset`
+  Torch is imported only in the model, training and export modules, never in `labels`, `dataset`, `metrics`
   or at package top level, so the base install works without the `train` extra.
 - Commands -> `uv sync` builds the Python package and extension. For C++ development:
   `cmake -B build/dev -G Ninja -DPython_EXECUTABLE=$PWD/.venv/bin/python -DTINY_KWS_BUILD_TESTS=ON -DTINY_KWS_BUILD_CLI=ON`,
