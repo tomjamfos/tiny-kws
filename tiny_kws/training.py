@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import torch
@@ -8,6 +9,33 @@ from numpy.typing import NDArray
 from tiny_kws import metrics
 from tiny_kws.dataset import EvaluationSet
 from tiny_kws.labels import CLASS_NAMES
+
+DeviceName = Literal["cuda", "mps", "cpu"]
+
+
+def get_device(device: DeviceName | None = None) -> torch.device:
+    """
+    Return the named device if available,
+    or this machine's accelerator if no device is specified.
+    Never falls back to the CPU, which is only returned when named.
+
+    Raises RuntimeError if the named device is unavailable,
+    or if no device is specified and no accelerator is available.
+    """
+
+    if device is None:
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        raise RuntimeError("no accelerator available, use cpu instead")
+
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("cuda isn't available")
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("mps isn't available")
+
+    return torch.device(device)
 
 
 @dataclass(frozen=True, kw_only=True)
