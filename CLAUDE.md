@@ -13,7 +13,7 @@ Inference is CPU-only, with a Raspberry Pi 3 (ARM Cortex-A53, 1 GB RAM) as the p
 - `cli/` -> Standalone C++ inference binary (ONNX Runtime).
 - `scripts/` -> One-off tooling: benchmarks, quantisation.
 - `tests/` -> `tests/python/` for pytest (including frontend/torchaudio comparison tests), `tests/cpp/` for Catch2.
-- `models/` -> Exported `.onnx` files (committed).
+- `onnx/` -> Exported `.onnx` files (committed).
 - `data/` -> Datasets (gitignored).
 - `notebooks/` -> Experiments and results plots (outputs committed).
 - `pyproject.toml` -> Scikit-build-core, builds the extension via CMake.
@@ -48,6 +48,8 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - Mel: 32 bins, HTK scale, no filter normalisation, 20 to 8000 Hz (`f_min=20` differs from default).
 - Log: `ln(max(x, 1e-6))`, applied separately since MelSpectrogram outputs linear power.
 - Output: 32 (mel bins) by 98 (time frames), float32.
+- Feature normalisation: none in the frontend, dataset or CLI. Every model's forward starts with
+  `PerBinMeanNormalisation` (`tiny_kws/models/normalisation.py`), so the ONNX model takes raw log-mel.
 - torchaudio is the numerical reference for the frontend. Fix the C++ to match it, not the reverse.
   Framing is the one deliberate exception.
 
