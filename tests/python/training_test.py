@@ -1,3 +1,6 @@
+import subprocess
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -71,6 +74,64 @@ def test_get_device_named_cpu(
     patch_accelerator(monkeypatch, accelerator)
 
     assert training.get_device("cpu") == CPU
+
+
+def git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", repo, *args], check=True)
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """
+    A git repo with a.txt committed and no changes.
+    """
+
+    git(tmp_path, "init")
+
+    git(tmp_path, "config", "user.name", "Joe Bloggs")
+    git(tmp_path, "config", "user.email", "joe_bloggs@example.com")
+
+    (tmp_path / "a.txt").write_text("a")
+
+    git(tmp_path, "add", "a.txt")
+    git(tmp_path, "commit", "-m", "Initial commit")
+
+    return tmp_path
+
+
+def test_git_state_clean_repo(repo: Path) -> None:
+
+    state = training.git_state(repo)
+
+    # Without strip(), rev-parse's trailing newline would add a character to the hash.
+    assert len(state.commit) == 40
+
+    assert state.git_status == ()
+
+
+def test_git_state_status_lines_verbatim(repo: Path) -> None:
+
+    (repo / "a.txt").write_text("changed")
+    (repo / "b.txt").write_text("b")
+
+    # strip() on the status output would drop the leading space of " M a.txt".
+    assert training.git_state(repo).git_status == (" M a.txt", "?? b.txt")
+
+
+def test_git_state_overrides_untracked_config(repo: Path) -> None:
+
+    git(repo, "config", "status.showUntrackedFiles", "no")
+    (repo / "b.txt").write_text("b")
+
+    # Without --untracked-files=normal, this config would hide b.txt,
+    # so a run with an untracked file would pass as clean.
+    assert training.git_state(repo).git_status == ("?? b.txt",)
+
+
+def test_git_state_outside_repo_raises(tmp_path: Path) -> None:
+
+    with pytest.raises(subprocess.CalledProcessError):
+        training.git_state(tmp_path)
 
 
 class PerfectClassifier(torch.nn.Module):

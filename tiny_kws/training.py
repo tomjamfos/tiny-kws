@@ -1,4 +1,6 @@
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -36,6 +38,42 @@ def get_device(device: DeviceName | None = None) -> torch.device:
         raise RuntimeError("mps isn't available")
 
     return torch.device(device)
+
+
+@dataclass(frozen=True, kw_only=True)
+class GitState:
+    """
+    The repo's HEAD commit hash and its porcelain git status lines.
+    """
+
+    commit: str
+    git_status: tuple[str, ...]
+
+
+def git_state(repo_root: Path) -> GitState:
+    """
+    Return the HEAD commit hash and porcelain git status lines
+    of repo_root, untracked files included.
+
+    Raises CalledProcessError if repo_root isn't in a git repository with any commits,
+    FileNotFoundError if git isn't on PATH.
+    """
+    commit_hash = subprocess.run(
+        ["git", "-C", repo_root, "rev-parse", "HEAD"],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    status = subprocess.run(
+        # --untracked-files=normal overrides any status.showUntrackedFiles config.
+        ["git", "-C", repo_root, "status", "--porcelain", "--untracked-files=normal"],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    ).stdout
+
+    return GitState(commit=commit_hash, git_status=tuple(status.splitlines()))
 
 
 @dataclass(frozen=True, kw_only=True)
