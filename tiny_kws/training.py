@@ -1,3 +1,4 @@
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,3 +121,22 @@ def evaluate(
             predicted_class_indices=logits.argmax(dim=1).cpu().numpy(),
         ),
     )
+
+
+def lr_factor(step: int, *, warmup_steps: int, total_steps: int) -> float:
+    """
+    Return the factor to scale the peak learning rate by at a given step.
+
+    Linear ramp from 1 / warmup_steps to 1 over the first warmup_steps steps,
+    then a decay to 0 over the first half period of a unipolar cosine.
+
+    warmup_steps must be less than total_steps.
+    """
+
+    if step < warmup_steps:
+        # Count from 1 so that the factor at the first step
+        # is non-zero and reaches the peak at the last ramp step.
+        return (step + 1) / warmup_steps
+
+    phase = math.pi * (step - warmup_steps) / (total_steps - warmup_steps)
+    return 0.5 + 0.5 * math.cos(phase)

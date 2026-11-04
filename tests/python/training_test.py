@@ -205,3 +205,30 @@ def test_evaluate_runs_model_in_eval_mode_without_grad(
 
     assert modes == [(False, False)] * 3
     assert not model.training
+
+
+def test_lr_factor_ramps_to_peak() -> None:
+
+    factors = [
+        training.lr_factor(step, warmup_steps=4, total_steps=10) for step in range(4)
+    ]
+
+    assert factors == [0.25, 0.5, 0.75, 1.0]
+
+
+def test_lr_factor_without_warmup_starts_at_peak() -> None:
+    assert training.lr_factor(0, warmup_steps=0, total_steps=10) == 1.0
+
+
+def test_lr_factor_decays_along_cosine() -> None:
+
+    factors = [
+        training.lr_factor(step, warmup_steps=4, total_steps=10) for step in (4, 6, 8)
+    ]
+
+    # A linear decay would give 2 / 3 at step 6.
+    assert factors == pytest.approx([1.0, 0.75, 0.25])
+
+
+def test_lr_factor_decays_to_zero() -> None:
+    assert training.lr_factor(10, warmup_steps=4, total_steps=10) == 0.0
