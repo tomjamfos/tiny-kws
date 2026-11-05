@@ -10,8 +10,9 @@ import torch.nn.functional as F
 from numpy.typing import NDArray
 
 from tiny_kws import metrics
-from tiny_kws.dataset import EvaluationSet
+from tiny_kws.dataset import AugmentationConfig, EvaluationSet
 from tiny_kws.labels import CLASS_NAMES
+from tiny_kws.models import MODELS, ModelName
 
 DeviceName = Literal["cuda", "mps", "cpu"]
 
@@ -140,3 +141,77 @@ def lr_factor(step: int, *, warmup_steps: int, total_steps: int) -> float:
 
     phase = math.pi * (step - warmup_steps) / (total_steps - warmup_steps)
     return 0.5 + 0.5 * math.cos(phase)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunConfig:
+    """
+    Defines one training run by its model, seed, number of epochs,
+    learning rate schedule, AdamW weight decay and augmentation.
+
+    Raises ValueError if model isn't in MODELS, epochs is less than 1,
+    warmup_epochs isn't in [0, epochs), peak_lr isn't greater than 0
+    or peak_weight_decay isn't at least 0.
+    """
+
+    model: ModelName
+    """
+    Name of architecture to train, a key of MODELS.
+    """
+
+    seed: int
+    """
+    Seeds the initial weights, dropout and every training data draw.
+    Validation and test sets are the same for every seed.
+    Tuning runs should use seeds from 100 onwards,
+    keeping seeds 0 to 4 for reported results.
+    """
+
+    epochs: int
+    """
+    Number of epochs, each one pass over a TrainSampler epoch plan.
+    """
+
+    warmup_epochs: int
+    """
+    Number of epochs at the start of training over which the learning rate ramps
+    linearly up to peak_lr, before a cosine decay to 0 over the remaining epochs.
+    0 is no warmup.
+    """
+
+    peak_lr: float
+    """
+    The learning rate at the schedule's peak,
+    reached once the warmup ends and before the cosine decay begins.
+    """
+
+    peak_weight_decay: float
+    """
+    Weight decay per step at the schedule's peak, as a fraction of each parameter.
+    Like the learning rate, it ramps during the warmup and decays to 0.
+    """
+
+    augmentation: AugmentationConfig
+
+    def __post_init__(self) -> None:
+
+        if self.model not in MODELS:
+            raise ValueError(
+                f"model must be one of {', '.join(sorted(MODELS))}, got {self.model}"
+            )
+
+        if self.epochs < 1:
+            raise ValueError(f"epochs must be at least 1, got {self.epochs}")
+
+        if not 0 <= self.warmup_epochs < self.epochs:
+            raise ValueError(
+                f"warmup_epochs must be in [0, {self.epochs}), got {self.warmup_epochs}"
+            )
+
+        if not self.peak_lr > 0:
+            raise ValueError(f"peak_lr must be positive, got {self.peak_lr}")
+
+        if not self.peak_weight_decay >= 0:
+            raise ValueError(
+                f"peak_weight_decay must be non-negative, got {self.peak_weight_decay}"
+            )

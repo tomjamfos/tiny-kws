@@ -1,3 +1,5 @@
+import dataclasses
+import math
 import subprocess
 from pathlib import Path
 
@@ -232,3 +234,53 @@ def test_lr_factor_decays_along_cosine() -> None:
 
 def test_lr_factor_decays_to_zero() -> None:
     assert training.lr_factor(10, warmup_steps=4, total_steps=10) == 0.0
+
+
+@pytest.fixture
+def run_config() -> training.RunConfig:
+    """
+    A valid RunConfig with 10 epochs and no warmup.
+    """
+    return training.RunConfig(
+        model="baseline",
+        seed=42,
+        epochs=10,
+        warmup_epochs=0,
+        peak_lr=1e-3,
+        peak_weight_decay=1e-4,
+        augmentation=dataset.AugmentationConfig(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("model", "a_model"),
+        ("epochs", 0),
+        ("warmup_epochs", -1),
+        ("warmup_epochs", 10),  # warmup_epochs = epochs
+        ("peak_lr", 0.0),
+        ("peak_lr", math.nan),  # A check written as peak_lr <= 0 would accept NaN
+        ("peak_weight_decay", -1e-4),
+        ("peak_weight_decay", math.nan),
+    ],
+)
+def test_run_config_invalid_value_raises(
+    run_config: training.RunConfig, field: str, value: object
+) -> None:
+    with pytest.raises(ValueError, match=rf"^{field} must"):
+        dataclasses.replace(run_config, **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("epochs", 1),
+        ("warmup_epochs", 9),  # warmup_epochs = epochs - 1
+        ("peak_weight_decay", 0.0),
+    ],
+)
+def test_run_config_accepts_boundary_values(
+    run_config: training.RunConfig, field: str, value: object
+) -> None:
+    dataclasses.replace(run_config, **{field: value})
