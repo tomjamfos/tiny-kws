@@ -59,8 +59,8 @@ Log-mel features, largely matching `torchaudio.transforms.MelSpectrogram` defaul
 - Dependencies flow one way -> `src/` depends only on the C++ standard library. `bindings/` adds pybind11,
   `cli/` adds ONNX Runtime. Nothing in `src/` or `cli/` may depend on Python or torch.
 - ONNX Runtime (for `cli/`) and Catch2 (for `tests/cpp/`) are fetched by CMake at configure time, not installed system-wide.
-- Dependencies -> base: numpy, onnxruntime. `train` extra: torch, torchaudio, onnx.
-  `dev` group: pybind11, pytest, ruff, soundfile, plus train. `notebooks` group: jupyterlab, matplotlib.
+- Dependencies -> base: numpy, onnxruntime. `train` extra: torch, torchaudio, onnx, tqdm, tyro.
+  `dev` group: pybind11, pyright, pytest, ruff, soundfile, plus train. `notebooks` group: jupyterlab, ipykernel, matplotlib.
   Torch is imported only in the models subpackage and the analysis, training and export modules, never in `labels`,
   `dataset`, `metrics` or `tiny_kws/__init__.py`, so the base install works without the `train` extra.
 - Commands -> `uv sync` builds the Python package and extension. For C++ development:

@@ -19,6 +19,7 @@ train = [
     "torchaudio>=2.4",
     "onnx>=1.16",
     "tqdm>=4.70.1",
+    "tyro>=1.0.16",
 ]
 
 [dependency-groups]
@@ -28,6 +29,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "soundfile>=0.14.0",
+    "pyright>=1.1.414",
 ]
 notebooks = [
     "jupyterlab>=4.0",
@@ -50,6 +52,8 @@ cache-keys = [
 ]
 
 [tool.pyright]
+include = ["tiny_kws", "tests", "scripts"]
+typeCheckingMode = "basic"
 reportMissingModuleSource = false
 
 [tool.pytest.ini_options]
