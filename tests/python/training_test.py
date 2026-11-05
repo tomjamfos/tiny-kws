@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import math
 import subprocess
 from pathlib import Path
@@ -260,7 +261,7 @@ def run_config() -> training.RunConfig:
         ("warmup_epochs", -1),
         ("warmup_epochs", 10),  # warmup_epochs = epochs
         ("peak_lr", 0.0),
-        ("peak_lr", math.nan),  # A check written as peak_lr <= 0 would accept NaN
+        ("peak_lr", math.nan),  # a check written as peak_lr <= 0 would accept NaN
         ("peak_weight_decay", -1e-4),
         ("peak_weight_decay", math.nan),
     ],
@@ -284,3 +285,103 @@ def test_run_config_accepts_boundary_values(
     run_config: training.RunConfig, field: str, value: object
 ) -> None:
     dataclasses.replace(run_config, **{field: value})
+
+
+@pytest.mark.parametrize("noise_range_db", [None, (-70.0, 0.0)])
+def test_config_from_dict_round_trip(
+    run_config: training.RunConfig, noise_range_db: tuple[float, float] | None
+) -> None:
+
+    config = dataclasses.replace(
+        run_config,
+        augmentation=dataset.AugmentationConfig(noise_range_db=noise_range_db),
+    )
+    data = json.loads(json.dumps(dataclasses.asdict(config)))
+
+    assert training.config_from_dict(training.RunConfig, data) == config
+
+
+def test_config_from_dict_converts_int_to_float(
+    run_config: training.RunConfig,
+) -> None:
+
+    data = dataclasses.asdict(run_config)
+    data["peak_lr"] = 1
+
+    config = training.config_from_dict(training.RunConfig, data)
+
+    assert isinstance(config.peak_lr, float)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("model", 1),
+        ("seed", True),  # an isinstance check would accept a bool as int
+        ("epochs", 10.0),
+        ("peak_lr", True),  # an isinstance check would convert True to 1.0
+        ("peak_lr", "1e-3"),
+        ("peak_lr", None),
+    ],
+)
+def test_config_from_dict_wrong_type_raises(
+    run_config: training.RunConfig, field: str, value: object
+) -> None:
+
+    data = dataclasses.asdict(run_config)
+    data[field] = value
+
+    with pytest.raises(TypeError, match=rf"^{field} must be"):
+        training.config_from_dict(training.RunConfig, data)
+
+
+@pytest.mark.parametrize(
+    "noise_range_db",
+    [
+        [-70.0, 0.0, 5.0],  # without the length check, zip would silently drop 5.0
+        -70.0,
+        [-70.0, "0"],
+    ],
+)
+def test_config_from_dict_invalid_noise_range_raises(
+    run_config: training.RunConfig, noise_range_db: object
+) -> None:
+
+    data = dataclasses.asdict(run_config)
+    data["augmentation"]["noise_range_db"] = noise_range_db
+
+    with pytest.raises(TypeError, match=r"^noise_range_db must be"):
+        training.config_from_dict(training.RunConfig, data)
+
+
+def test_config_from_dict_non_dict_raises() -> None:
+    with pytest.raises(TypeError, match=r"^RunConfig must be a dict"):
+        training.config_from_dict(training.RunConfig, [])
+
+
+def test_config_from_dict_missing_key_raises(run_config: training.RunConfig) -> None:
+
+    data = dataclasses.asdict(run_config)
+    data["augmentation"].pop("noise_range_db")
+
+    with pytest.raises(TypeError, match=r"has missing keys noise_range_db"):
+        training.config_from_dict(training.RunConfig, data)
+
+
+def test_config_from_dict_unknown_key_raises(run_config: training.RunConfig) -> None:
+
+    data = dataclasses.asdict(run_config)
+    data["momentum"] = 0.9
+
+    with pytest.raises(TypeError, match=r"has unknown keys momentum"):
+        training.config_from_dict(training.RunConfig, data)
+
+
+def test_config_from_dict_unsupported_type_raises() -> None:
+
+    @dataclasses.dataclass
+    class Config:
+        values: list[int]
+
+    with pytest.raises(TypeError, match=r"^values has unsupported type"):
+        training.config_from_dict(Config, {"values": [1, 2]})
