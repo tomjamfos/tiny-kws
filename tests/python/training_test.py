@@ -410,3 +410,32 @@ def test_config_template_placeholder_for_optional_field_raises() -> None:
     # With None as the placeholder, an empty optional field would load silently.
     with pytest.raises(TypeError, match=r"^value must be"):
         training.config_from_dict(Config, training.config_template(Config))
+
+
+def test_load_json_returns_contents(tmp_path: Path) -> None:
+
+    path = tmp_path / "data.json"
+    path.write_text('{"a": 1, "b": {"c": null}}')
+
+    assert training.load_json(path) == {"a": 1, "b": {"c": None}}
+
+
+@pytest.mark.parametrize(
+    "text", ['{"a": 1, "a": 2}', '{"b": {"a": 1, "a": 2}}', '[{"a": 1, "a": 2}]']
+)
+def test_load_json_repeated_key_raises(tmp_path: Path, text: str) -> None:
+
+    path = tmp_path / "data.json"
+    path.write_text(text)
+
+    with pytest.raises(ValueError, match=r"^duplicate keys a$"):
+        training.load_json(path)
+
+
+def test_load_json_names_repeated_keys_in_order(tmp_path: Path) -> None:
+
+    path = tmp_path / "data.json"
+    path.write_text('{"b": 1, "b": 2, "b": 3, "a": 1, "a": 2, "c": 3}')
+
+    with pytest.raises(ValueError, match=r"^duplicate keys a, b$"):
+        training.load_json(path)

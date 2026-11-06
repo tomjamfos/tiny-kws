@@ -1,9 +1,11 @@
+import json
 import math
 import subprocess
+from collections import Counter
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import TYPE_CHECKING, Literal, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
 import numpy as np
 import torch
@@ -312,3 +314,31 @@ def config_template[T: DataclassInstance](cls: type[T]) -> dict[str, object]:
         )
         for field in fields(cls)
     }
+
+
+def load_json(path: Path) -> Any:
+    """
+    Return the parsed contents of the JSON file at path.
+
+    Raises ValueError if the file isn't valid JSON
+    or if any object it contains repeats a key,
+    FileNotFoundError if path doesn't exist.
+    """
+    return json.loads(path.read_text(), object_pairs_hook=_unique_keys)
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """
+    Return the key and value pairs of a JSON object as a dict.
+    Passed to json.loads as object_pairs_hook,
+    because by default it silently keeps the last value of a repeated key.
+
+    Raises ValueError if any key repeats.
+    """
+
+    counts = Counter(key for key, _ in pairs)
+
+    if duplicates := [key for key, count in counts.items() if count > 1]:
+        raise ValueError(f"duplicate keys {', '.join(sorted(duplicates))}")
+
+    return dict(pairs)
