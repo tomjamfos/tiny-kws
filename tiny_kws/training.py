@@ -201,7 +201,7 @@ class RunConfig:
 
         if self.model not in MODELS:
             raise ValueError(
-                f"model must be one of {', '.join(sorted(MODELS))}, got {self.model}"
+                f"model must be one of {', '.join(sorted(MODELS))}, got {self.model!r}"
             )
 
         if self.epochs < 1:
@@ -275,7 +275,9 @@ def _convert_value(expected_type: object, value: object, name: str) -> object:
 
     if origin is tuple:
         if not isinstance(value, list) or len(value) != len(args):
-            raise TypeError(f"{name} must be a list of {len(args)} values, got {value}")
+            raise TypeError(
+                f"{name} must be a list of {len(args)} values, got {value!r}"
+            )
         return tuple(_convert_value(arg, item, name) for arg, item in zip(args, value))
 
     # Whether value is one of Literal's options is left to the dataclass's checks.
@@ -293,3 +295,20 @@ def _convert_value(expected_type: object, value: object, name: str) -> object:
         return value
 
     raise TypeError(f"{name} has unsupported type {expected_type}")
+
+
+def config_template[T: DataclassInstance](cls: type[T]) -> dict[str, object]:
+    """
+    Return a dict with the keys config_from_dict expects for cls,
+    with a nested dict for every dataclass field
+    and "" as the placeholder for every other value.
+    """
+
+    return {
+        field.name: (
+            config_template(field.type)
+            if isinstance(field.type, type) and is_dataclass(field.type)
+            else ""
+        )
+        for field in fields(cls)
+    }

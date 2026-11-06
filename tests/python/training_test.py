@@ -385,3 +385,28 @@ def test_config_from_dict_unsupported_type_raises() -> None:
 
     with pytest.raises(TypeError, match=r"^values has unsupported type"):
         training.config_from_dict(Config, {"values": [1, 2]})
+
+
+def test_config_template_nests_dataclass_fields() -> None:
+
+    @dataclasses.dataclass
+    class Inner:
+        value: float
+
+    @dataclasses.dataclass
+    class Outer:
+        seed: int
+        inner: Inner
+
+    assert training.config_template(Outer) == {"seed": "", "inner": {"value": ""}}
+
+
+def test_config_template_placeholder_for_optional_field_raises() -> None:
+
+    @dataclasses.dataclass
+    class Config:
+        value: int | None
+
+    # With None as the placeholder, an empty optional field would load silently.
+    with pytest.raises(TypeError, match=r"^value must be"):
+        training.config_from_dict(Config, training.config_template(Config))
